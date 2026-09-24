@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthStore } from '../store/authStore';
 import { useSocket, initSocket } from '../hooks/useSocket';
 import { useWebRTC } from '../hooks/useWebRTC';
 import GameRoom from '../components/GameRoom';
@@ -129,13 +130,21 @@ export default function Game() {
       result: string;
       whiteEloDelta: number;
       blackEloDelta: number;
+      newWhiteElo?: number;
+      newBlackElo?: number;
     }) => {
       setStatus('finished');
       setResult(data.result);
       if (myColor === 'white') {
         setEloChange(data.whiteEloDelta);
+        if (data.newWhiteElo !== undefined) {
+          useAuthStore.getState().updateElo(data.newWhiteElo);
+        }
       } else {
         setEloChange(data.blackEloDelta);
+        if (data.newBlackElo !== undefined) {
+          useAuthStore.getState().updateElo(data.newBlackElo);
+        }
       }
     });
 
@@ -229,11 +238,13 @@ export default function Game() {
 
   const handleReturnHome = () => {
     endCall();
+    useAuthStore.getState().refreshUser();
     navigate('/');
   };
 
   const handleRematch = () => {
     endCall();
+    useAuthStore.getState().refreshUser();
     navigate('/');
   };
 

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthStore } from '../store/authStore';
 import { useSocket, initSocket } from '../hooks/useSocket';
 import type { ActiveGame } from '../types';
 
 export default function Home() {
   const { user, token } = useAuth();
+  const refreshUser = useAuthStore(s => s.refreshUser);
   const navigate = useNavigate();
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [timeControl, setTimeControl] = useState(10);
@@ -17,6 +19,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!token) return;
+    refreshUser();
     const s = initSocket(token);
 
     s.emit('get_active_games');
@@ -34,7 +37,7 @@ export default function Home() {
       s.off('active_games_update');
       s.off('game_created');
     };
-  }, [token, navigate]);
+  }, [token, navigate, refreshUser]);
 
   const createGame = () => {
     setCreatingGame(true);

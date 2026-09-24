@@ -1,10 +1,19 @@
+import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthStore } from '../store/authStore';
 import { disconnectSocket } from '../hooks/useSocket';
 
 export default function Navbar() {
   const { user, logout, isAuthenticated } = useAuth();
+  const refreshUser = useAuthStore(s => s.refreshUser);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      refreshUser();
+    }
+  }, [isAuthenticated, refreshUser]);
 
   const handleLogout = () => {
     disconnectSocket();

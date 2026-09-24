@@ -148,9 +148,9 @@ export const setupGameHandler = (io: Server, socket: Socket, userId: string, use
         let loserId: string | null = null;
 
         if (game.chess.isCheckmate()) {
-          result = isWhiteTurn ? 'black_wins' : 'white_wins';
-          winnerId = isWhiteTurn ? game.blackId : game.whiteId;
-          loserId = isWhiteTurn ? game.whiteId : game.blackId;
+          result = isWhiteTurn ? 'white_wins' : 'black_wins';
+          winnerId = isWhiteTurn ? game.whiteId : game.blackId;
+          loserId = isWhiteTurn ? game.blackId : game.whiteId;
         }
         await endGame(io, game, result, winnerId, loserId);
       }
@@ -214,6 +214,8 @@ const endGame = async (io: Server, game: GameState, result: string, winnerId: st
 
   let whiteEloDelta = 0;
   let blackEloDelta = 0;
+  let newWhiteElo = game.whiteElo;
+  let newBlackElo = game.blackElo || 1200;
 
   if (winnerId && loserId) {
     const isWinnerWhite = winnerId === game.whiteId;
@@ -226,9 +228,13 @@ const endGame = async (io: Server, game: GameState, result: string, winnerId: st
     if (isWinnerWhite) {
       whiteEloDelta = winnerDelta;
       blackEloDelta = loserDelta;
+      newWhiteElo = newWinnerElo;
+      newBlackElo = newLoserElo;
     } else {
       blackEloDelta = winnerDelta;
       whiteEloDelta = loserDelta;
+      newWhiteElo = newLoserElo;
+      newBlackElo = newWinnerElo;
     }
 
     await prisma.user.update({ where: { id: winnerId }, data: { elo: { increment: winnerDelta } } });
@@ -248,6 +254,8 @@ const endGame = async (io: Server, game: GameState, result: string, winnerId: st
     result,
     whiteEloDelta,
     blackEloDelta,
+    newWhiteElo,
+    newBlackElo,
   });
 
   setTimeout(() => activeGames.delete(game.id), 60000);
