@@ -50,25 +50,63 @@ export const setupGameHandler = (io: Server, socket: Socket, userId: string, use
 
   socket.on('join_game', async (data: { gameId: string }) => {
     const game = activeGames.get(data.gameId);
-    if (!game || game.status !== 'waiting' || game.whiteId === userId) {
-      socket.emit('error', { message: 'Cannot join this game' });
+    if (!game) {
+      socket.emit('error', { message: 'Game not found' });
       return;
     }
-    game.blackId = userId;
-    game.blackUsername = username;
-    game.blackElo = elo;
-    game.status = 'playing';
-    game.lastMoveTime = Date.now();
     socket.join(data.gameId);
-    io.to(data.gameId).emit('game_started', {
+    if (game.whiteId !== userId && !game.blackId && game.status === 'waiting') {
+      game.blackId = userId;
+      game.blackUsername = username;
+      game.blackElo = elo;
+      game.status = 'playing';
+      game.lastMoveTime = Date.now();
+      io.emit('active_games_update', getActiveGamesList());
+    }
+    const myColor = userId === game.whiteId ? 'white' : (userId === game.blackId ? 'black' : 'white');
+    socket.emit('game_init', {
       gameId: data.gameId,
       fen: game.chess.fen(),
+      myColor,
       white: { id: game.whiteId, username: game.whiteUsername, elo: game.whiteElo },
-      black: { id: game.blackId, username: game.blackUsername, elo: game.blackElo },
+      black: game.blackId ? { id: game.blackId, username: game.blackUsername!, elo: game.blackElo! } : null,
       whiteTime: game.whiteTime,
       blackTime: game.blackTime,
+      status: game.status,
+      turn: game.chess.turn(),
+      isCheck: game.chess.isCheck(),
     });
-    io.emit('active_games_update', getActiveGamesList());
+    if (game.status === 'playing' && game.blackId) {
+      io.to(data.gameId).emit('game_started', {
+        gameId: data.gameId,
+        fen: game.chess.fen(),
+        white: { id: game.whiteId, username: game.whiteUsername, elo: game.whiteElo },
+        black: { id: game.blackId, username: game.blackUsername!, elo: game.blackElo! },
+        whiteTime: game.whiteTime,
+        blackTime: game.blackTime,
+        turn: game.chess.turn(),
+        isCheck: game.chess.isCheck(),
+      });
+    }
+  });
+
+  socket.on('rejoin_game', (data: { gameId: string }) => {
+    const game = activeGames.get(data.gameId);
+    if (!game) return;
+    socket.join(data.gameId);
+    const myColor = userId === game.whiteId ? 'white' : (userId === game.blackId ? 'black' : 'white');
+    socket.emit('game_init', {
+      gameId: data.gameId,
+      fen: game.chess.fen(),
+      myColor,
+      white: { id: game.whiteId, username: game.whiteUsername, elo: game.whiteElo },
+      black: game.blackId ? { id: game.blackId, username: game.blackUsername!, elo: game.blackElo! } : null,
+      whiteTime: game.whiteTime,
+      blackTime: game.blackTime,
+      status: game.status,
+      turn: game.chess.turn(),
+      isCheck: game.chess.isCheck(),
+    });
   });
 
   socket.on('make_move', async (data: { gameId: string; move: { from: string; to: string; promotion?: string } }) => {
@@ -99,6 +137,9 @@ export const setupGameHandler = (io: Server, socket: Socket, userId: string, use
         whiteTime: game.whiteTime,
         blackTime: game.blackTime,
         pgn: game.chess.pgn(),
+        turn: game.chess.turn(),
+        isCheck: game.chess.isCheck(),
+        isCheckmate: game.chess.isCheckmate(),
       });
 
       if (game.chess.isGameOver()) {
@@ -152,18 +193,6 @@ export const setupGameHandler = (io: Server, socket: Socket, userId: string, use
       sender: username,
       text: data.text,
       timestamp: Date.now(),
-    });
-  });
-
-  socket.on('rejoin_game', (data: { gameId: string }) => {
-    const game = activeGames.get(data.gameId);
-    if (!game) return;
-    socket.join(data.gameId);
-    socket.emit('game_rejoined', {
-      fen: game.chess.fen(),
-      whiteTime: game.whiteTime,
-      blackTime: game.blackTime,
-      status: game.status,
     });
   });
 };

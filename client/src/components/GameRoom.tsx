@@ -17,7 +17,7 @@ interface GameRoomProps {
   fen: string;
   myColor: 'white' | 'black';
   whitePlayer: PlayerInfo;
-  blackPlayer: PlayerInfo;
+  blackPlayer: PlayerInfo | null;
   whiteTime: number;
   blackTime: number;
   activeTurn: 'w' | 'b';
@@ -78,6 +78,7 @@ export default function GameRoom({
   const [copied, setCopied] = useState(false);
 
   const opponent = myColor === 'white' ? blackPlayer : whitePlayer;
+  const me = myColor === 'white' ? whitePlayer : blackPlayer;
   const isMyTurn = (activeTurn === 'w' && myColor === 'white') || (activeTurn === 'b' && myColor === 'black');
 
   const copyGameId = () => {
@@ -154,13 +155,13 @@ export default function GameRoom({
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontWeight: 700, fontSize: 12,
               }}>
-                {opponent.username?.[0]?.toUpperCase() || '?'}
+                {opponent?.username?.[0]?.toUpperCase() || '?'}
               </div>
-              <span style={{ fontWeight: 600 }}>{opponent.username || 'Waiting...'}</span>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>({opponent.elo})</span>
+              <span style={{ fontWeight: 600 }}>{opponent?.username || 'Waiting for opponent...'}</span>
+              {opponent && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>({opponent.elo})</span>}
             </div>
             <span className="badge badge-muted" style={{ textTransform: 'capitalize' }}>
-              {myColor === 'white' ? 'Black' : 'White'}
+              {myColor === 'white' ? 'Black ♚' : 'White ♔'}
             </span>
           </div>
 
@@ -188,13 +189,13 @@ export default function GameRoom({
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontWeight: 700, fontSize: 12,
               }}>
-                {(myColor === 'white' ? whitePlayer : blackPlayer).username?.[0]?.toUpperCase()}
+                {me?.username?.[0]?.toUpperCase() || '?'}
               </div>
-              <span style={{ fontWeight: 600 }}>{(myColor === 'white' ? whitePlayer : blackPlayer).username}</span>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>({(myColor === 'white' ? whitePlayer : blackPlayer).elo})</span>
+              <span style={{ fontWeight: 600 }}>{me?.username || 'You'}</span>
+              {me && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>({me.elo})</span>}
             </div>
             <span className="badge badge-gold" style={{ textTransform: 'capitalize' }}>
-              {myColor} (You)
+              {myColor === 'white' ? 'White ♔ (You)' : 'Black ♚ (You)'}
             </span>
           </div>
 
@@ -238,7 +239,7 @@ export default function GameRoom({
             onStartCall={onStartCall}
             onToggleVideo={onToggleVideo}
             onToggleAudio={onToggleAudio}
-            opponentName={opponent.username}
+            opponentName={opponent?.username || 'Opponent'}
           />
 
           <Chat

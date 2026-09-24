@@ -12,7 +12,6 @@ export default function Home() {
   const [joinId, setJoinId] = useState('');
   const [creatingGame, setCreatingGame] = useState(false);
   const [joiningGame, setJoiningGame] = useState(false);
-  const [createdGameId, setCreatedGameId] = useState<string | null>(null);
 
   const socket = useSocket();
 
@@ -27,10 +26,6 @@ export default function Home() {
 
     s.on('game_created', ({ gameId }: { gameId: string }) => {
       setCreatingGame(false);
-      setCreatedGameId(gameId);
-    });
-
-    s.on('game_started', ({ gameId }: { gameId: string }) => {
       navigate(`/game/${gameId}`);
     });
 
@@ -38,25 +33,18 @@ export default function Home() {
       s.off('active_games');
       s.off('active_games_update');
       s.off('game_created');
-      s.off('game_started');
     };
   }, [token, navigate]);
 
   const createGame = () => {
     setCreatingGame(true);
-    setCreatedGameId(null);
     socket?.emit('create_game', { timeControl });
   };
 
   const joinGame = (gameId: string) => {
+    if (!gameId.trim()) return;
     setJoiningGame(true);
-    socket?.emit('join_game', { gameId });
-  };
-
-  const copyLink = () => {
-    if (createdGameId) {
-      navigator.clipboard.writeText(`${window.location.origin}/game/${createdGameId}`);
-    }
+    navigate(`/game/${gameId.trim()}`);
   };
 
   return (
@@ -103,18 +91,8 @@ export default function Home() {
             </div>
 
             <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={createGame} disabled={creatingGame}>
-              {creatingGame ? <><span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Waiting for opponent...</> : '♟️ Create New Game'}
+              {creatingGame ? <><span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Creating room...</> : '♟️ Create New Game'}
             </button>
-
-            {createdGameId && (
-              <div style={{ marginTop: 16, padding: 14, background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Share this game ID with your opponent:</div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <code style={{ flex: 1, fontSize: 11, color: 'var(--accent)', wordBreak: 'break-all' }}>{createdGameId}</code>
-                  <button className="btn btn-ghost btn-sm" onClick={copyLink}>Copy</button>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="card">
@@ -126,7 +104,7 @@ export default function Home() {
                 value={joinId}
                 onChange={e => setJoinId(e.target.value)}
               />
-              <button className="btn btn-secondary" onClick={() => joinGame(joinId)} disabled={!joinId || joiningGame}>
+              <button className="btn btn-secondary" onClick={() => joinGame(joinId)} disabled={!joinId.trim() || joiningGame}>
                 Join
               </button>
             </div>

@@ -45,12 +45,16 @@ export const setupSocket = (io: Server) => {
 };
 
 const setupRtcHandler = (socket: Socket) => {
-  socket.on('rtc_offer', (data: { gameId: string; signal: unknown }) => {
-    socket.to(data.gameId).emit('rtc_offer', { from: socket.id, signal: data.signal });
+  socket.on('rtc_ready', (data: { gameId: string }) => {
+    socket.to(data.gameId).emit('rtc_ready', { from: socket.id });
   });
 
-  socket.on('rtc_answer', (data: { gameId: string; signal: unknown }) => {
-    socket.to(data.gameId).emit('rtc_answer', { from: socket.id, signal: data.signal });
+  socket.on('rtc_offer', (data: { gameId: string; offer: unknown }) => {
+    socket.to(data.gameId).emit('rtc_offer', { from: socket.id, offer: data.offer });
+  });
+
+  socket.on('rtc_answer', (data: { gameId: string; answer: unknown }) => {
+    socket.to(data.gameId).emit('rtc_answer', { from: socket.id, answer: data.answer });
   });
 
   socket.on('ice_candidate', (data: { gameId: string; candidate: unknown }) => {

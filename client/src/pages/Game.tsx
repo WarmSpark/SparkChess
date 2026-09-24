@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { useAuth } from '../hooks/useAuth';
@@ -17,7 +17,7 @@ export default function Game() {
   const [fen, setFen] = useState(chessRef.current.fen());
   const [myColor, setMyColor] = useState<'white' | 'black'>('white');
   const [whitePlayer, setWhitePlayer] = useState({ id: '', username: '', elo: 1200 });
-  const [blackPlayer, setBlackPlayer] = useState({ id: '', username: '', elo: 1200 });
+  const [blackPlayer, setBlackPlayer] = useState<{ id: string; username: string; elo: number } | null>(null);
   const [whiteTime, setWhiteTime] = useState(600000);
   const [blackTime, setBlackTime] = useState(600000);
   const [activeTurn, setActiveTurn] = useState<'w' | 'b'>('w');
@@ -45,18 +45,37 @@ export default function Game() {
     isInitiator,
   });
 
-  const updateBoardState = useCallback(() => {
-    setFen(chessRef.current.fen());
-    setActiveTurn(chessRef.current.turn());
-    setIsCheck(chessRef.current.isCheck());
-    setIsCheckmate(chessRef.current.isCheckmate());
-  }, []);
-
   useEffect(() => {
     if (!token || !gameId) return;
     const s = initSocket(token);
 
-    s.emit('rejoin_game', { gameId });
+    s.emit('join_game', { gameId });
+
+    s.on('game_init', (data: {
+      gameId: string;
+      fen: string;
+      myColor: 'white' | 'black';
+      white: { id: string; username: string; elo: number };
+      black: { id: string; username: string; elo: number } | null;
+      whiteTime: number;
+      blackTime: number;
+      status: 'waiting' | 'playing' | 'finished';
+      turn: 'w' | 'b';
+      isCheck: boolean;
+    }) => {
+      chessRef.current.load(data.fen);
+      setFen(data.fen);
+      setActiveTurn(data.turn);
+      setIsCheck(data.isCheck);
+      setMyColor(data.myColor);
+      setWhitePlayer(data.white);
+      if (data.black) {
+        setBlackPlayer(data.black);
+      }
+      setWhiteTime(data.whiteTime);
+      setBlackTime(data.blackTime);
+      setStatus(data.status);
+    });
 
     s.on('game_started', (data: {
       gameId: string;
@@ -65,9 +84,13 @@ export default function Game() {
       black: { id: string; username: string; elo: number };
       whiteTime: number;
       blackTime: number;
+      turn: 'w' | 'b';
+      isCheck: boolean;
     }) => {
       chessRef.current.load(data.fen);
-      updateBoardState();
+      setFen(data.fen);
+      setActiveTurn(data.turn);
+      setIsCheck(data.isCheck);
       setWhitePlayer(data.white);
       setBlackPlayer(data.black);
       setWhiteTime(data.whiteTime);
@@ -75,7 +98,7 @@ export default function Game() {
       setStatus('playing');
       if (user?.id === data.white.id) {
         setMyColor('white');
-      } else {
+      } else if (user?.id === data.black.id) {
         setMyColor('black');
       }
     });
@@ -85,30 +108,21 @@ export default function Game() {
       fen: string;
       whiteTime: number;
       blackTime: number;
+      turn: 'w' | 'b';
+      isCheck: boolean;
+      isCheckmate: boolean;
     }) => {
       try {
         chessRef.current.move(data.move);
       } catch {
         chessRef.current.load(data.fen);
       }
-      updateBoardState();
+      setFen(chessRef.current.fen());
+      setActiveTurn(data.turn);
+      setIsCheck(data.isCheck);
+      setIsCheckmate(data.isCheckmate);
       setWhiteTime(data.whiteTime);
       setBlackTime(data.blackTime);
-    });
-
-    s.on('game_rejoined', (data: {
-      fen: string;
-      whiteTime: number;
-      blackTime: number;
-      status: 'waiting' | 'playing' | 'finished';
-    }) => {
-      if (data.fen) {
-        chessRef.current.load(data.fen);
-        updateBoardState();
-      }
-      if (data.whiteTime) setWhiteTime(data.whiteTime);
-      if (data.blackTime) setBlackTime(data.blackTime);
-      if (data.status) setStatus(data.status);
     });
 
     s.on('game_over', (data: {
@@ -143,17 +157,22 @@ export default function Game() {
     });
 
     return () => {
+      s.off('game_init');
       s.off('game_started');
       s.off('move_made');
-      s.off('game_rejoined');
       s.off('game_over');
       s.off('draw_offered');
       s.off('draw_declined');
       s.off('message');
     };
-  }, [token, gameId, user?.id, myColor, updateBoardState]);
+  }, [token, gameId, user?.id, myColor]);
 
   const handlePieceDrop = (sourceSquare: string, targetSquare: string, piece: string): boolean => {
+    if (status !== 'playing') return false;
+
+    const isMyTurn = (activeTurn === 'w' && myColor === 'white') || (activeTurn === 'b' && myColor === 'black');
+    if (!isMyTurn) return false;
+
     const isPawnPromotion =
       piece[1]?.toLowerCase() === 'p' &&
       ((piece[0] === 'w' && targetSquare[1] === '8') || (piece[0] === 'b' && targetSquare[1] === '1'));
@@ -167,7 +186,11 @@ export default function Game() {
     try {
       const move = chessRef.current.move(movePayload);
       if (!move) return false;
-      updateBoardState();
+      setFen(chessRef.current.fen());
+      setActiveTurn(chessRef.current.turn());
+      setIsCheck(chessRef.current.isCheck());
+      setIsCheckmate(chessRef.current.isCheckmate());
+
       socket?.emit('make_move', {
         gameId,
         move: movePayload,

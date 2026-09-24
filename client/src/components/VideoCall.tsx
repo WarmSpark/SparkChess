@@ -1,5 +1,3 @@
-import { useRef, useEffect } from 'react';
-
 interface VideoCallProps {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
@@ -23,21 +21,6 @@ export default function VideoCall({
   onToggleAudio,
   opponentName,
 }: VideoCallProps) {
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream]);
-
-  useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
-    }
-  }, [remoteStream]);
-
   const statusColor = {
     idle: 'var(--text-muted)',
     connecting: 'var(--warning)',
@@ -55,7 +38,11 @@ export default function VideoCall({
       <div style={{ position: 'relative', aspectRatio: '16/9', background: '#000', minHeight: 140 }}>
         {remoteStream ? (
           <video
-            ref={remoteVideoRef}
+            ref={(el) => {
+              if (el && el.srcObject !== remoteStream) {
+                el.srcObject = remoteStream;
+              }
+            }}
             autoPlay
             playsInline
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -84,7 +71,11 @@ export default function VideoCall({
             background: '#000',
           }}>
             <video
-              ref={localVideoRef}
+              ref={(el) => {
+                if (el && el.srcObject !== localStream) {
+                  el.srcObject = localStream;
+                }
+              }}
               autoPlay
               playsInline
               muted

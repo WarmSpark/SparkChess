@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import SimplePeer from 'simple-peer';
 import { Socket } from 'socket.io-client';
 
 interface UseWebRTCOptions {
@@ -14,83 +13,185 @@ export const useWebRTC = ({ socket, gameId, isInitiator }: UseWebRTCOptions) => 
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'disconnected'>('idle');
-  const peerRef = useRef<SimplePeer.Instance | null>(null);
+
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+
+  const createPeerConnection = useCallback((stream: MediaStream) => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+    }
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
+    });
+
+    stream.getTracks().forEach(track => {
+      pc.addTrack(track, stream);
+    });
+
+    pc.ontrack = (event) => {
+      if (event.streams && event.streams[0]) {
+        setRemoteStream(event.streams[0]);
+        setConnectionStatus('connected');
+      }
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socket) {
+        socket.emit('ice_candidate', { gameId, candidate: event.candidate });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        setConnectionStatus('connected');
+      } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        setConnectionStatus('disconnected');
+      }
+    };
+
+    peerConnectionRef.current = pc;
+    return pc;
+  }, [gameId, socket]);
 
   const startCall = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setLocalStream(stream);
       setConnectionStatus('connecting');
+      let stream: MediaStream;
 
-      const peer = new SimplePeer({
-        initiator: isInitiator,
-        trickle: true,
-        stream,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-          ],
-        },
-      });
-
-      peer.on('signal', (data) => {
-        if (data.type === 'offer') {
-          socket?.emit('rtc_offer', { gameId, signal: data });
-        } else if (data.type === 'answer') {
-          socket?.emit('rtc_answer', { gameId, signal: data });
-        } else {
-          socket?.emit('ice_candidate', { gameId, candidate: data });
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      } catch {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+        } catch (err: unknown) {
+          const errorMsg = (err as Error)?.message || 'Camera and mic access failed. Please check browser permissions.';
+          alert(errorMsg);
+          setConnectionStatus('disconnected');
+          return;
         }
-      });
+      }
 
-      peer.on('stream', (remote) => {
-        setRemoteStream(remote);
-        setConnectionStatus('connected');
-      });
+      setLocalStream(stream);
+      localStreamRef.current = stream;
 
-      peer.on('error', () => setConnectionStatus('disconnected'));
-      peer.on('close', () => setConnectionStatus('disconnected'));
+      const pc = createPeerConnection(stream);
 
-      socket?.on('rtc_offer', ({ signal }: { signal: SimplePeer.SignalData }) => peer.signal(signal));
-      socket?.on('rtc_answer', ({ signal }: { signal: SimplePeer.SignalData }) => peer.signal(signal));
-      socket?.on('ice_candidate', ({ candidate }: { candidate: SimplePeer.SignalData }) => peer.signal(candidate));
-
-      peerRef.current = peer;
+      if (isInitiator) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket?.emit('rtc_offer', { gameId, offer });
+      } else {
+        socket?.emit('rtc_ready', { gameId });
+      }
     } catch {
       setConnectionStatus('disconnected');
     }
-  }, [socket, gameId, isInitiator]);
+  }, [createPeerConnection, gameId, isInitiator, socket]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleRtcReady = async () => {
+      if (isInitiator && localStreamRef.current) {
+        const pc = peerConnectionRef.current || createPeerConnection(localStreamRef.current);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('rtc_offer', { gameId, offer });
+      }
+    };
+
+    const handleRtcOffer = async ({ offer }: { offer: RTCSessionDescriptionInit }) => {
+      try {
+        let stream = localStreamRef.current;
+        if (!stream) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          } catch {
+            stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+          }
+          setLocalStream(stream);
+          localStreamRef.current = stream;
+        }
+
+        const pc = createPeerConnection(stream);
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('rtc_answer', { gameId, answer });
+      } catch {
+        setConnectionStatus('disconnected');
+      }
+    };
+
+    const handleRtcAnswer = async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+      try {
+        if (peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+      } catch {
+        setConnectionStatus('disconnected');
+      }
+    };
+
+    const handleIceCandidate = async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
+      try {
+        if (peerConnectionRef.current && candidate) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      } catch {
+        return;
+      }
+    };
+
+    socket.on('rtc_ready', handleRtcReady);
+    socket.on('rtc_offer', handleRtcOffer);
+    socket.on('rtc_answer', handleRtcAnswer);
+    socket.on('ice_candidate', handleIceCandidate);
+
+    return () => {
+      socket.off('rtc_ready', handleRtcReady);
+      socket.off('rtc_offer', handleRtcOffer);
+      socket.off('rtc_answer', handleRtcAnswer);
+      socket.off('ice_candidate', handleIceCandidate);
+    };
+  }, [socket, gameId, isInitiator, createPeerConnection]);
 
   const toggleVideo = useCallback(() => {
-    if (localStream) {
-      const track = localStream.getVideoTracks()[0];
+    if (localStreamRef.current) {
+      const track = localStreamRef.current.getVideoTracks()[0];
       if (track) {
         track.enabled = !track.enabled;
         setIsVideoEnabled(track.enabled);
       }
     }
-  }, [localStream]);
+  }, []);
 
   const toggleAudio = useCallback(() => {
-    if (localStream) {
-      const track = localStream.getAudioTracks()[0];
+    if (localStreamRef.current) {
+      const track = localStreamRef.current.getAudioTracks()[0];
       if (track) {
         track.enabled = !track.enabled;
         setIsAudioEnabled(track.enabled);
       }
     }
-  }, [localStream]);
+  }, []);
 
   const endCall = useCallback(() => {
-    peerRef.current?.destroy();
-    localStream?.getTracks().forEach(t => t.stop());
+    peerConnectionRef.current?.close();
+    peerConnectionRef.current = null;
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    localStreamRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
-    setConnectionStatus('disconnected');
-  }, [localStream]);
+    setConnectionStatus('idle');
+  }, []);
 
-  useEffect(() => () => { endCall(); }, []);
+  useEffect(() => () => { endCall(); }, [endCall]);
 
   return { localStream, remoteStream, isVideoEnabled, isAudioEnabled, connectionStatus, startCall, toggleVideo, toggleAudio, endCall };
 };
